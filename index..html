@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lernmethoden-Generator</title>
+    <!-- Tailwind CSS laden -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f7f9;
+        }
+        /* Styling für Lernkarten (Flashcards) */
+        .flashcard-wrapper {
+            perspective: 1000px;
+        }
+        .flashcard {
+            transform-style: preserve-3d;
+            transition: transform 0.6s;
+            cursor: pointer;
+            height: 100%; /* Wichtig für die Höhe der Kinder */
+        }
+        .flashcard.flipped {
+            transform: rotateY(180deg);
+        }
+        .card-face {
+            backface-visibility: hidden;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .card-back {
+            transform: rotateY(180deg);
+            background-color: #ffffff;
+            color: #374151;
+            border-top: 5px solid #3b82f6;
+        }
+        .card-front {
+            background-color: #3b82f6;
+            color: #ffffff;
+        }
+        /* Styling für Quiz und Lückentext-Feedback */
+        .correct-bg { background-color: #d1fae5; border-color: #10b981; }
+        .wrong-bg { background-color: #fee2e2; border-color: #ef4444; }
+        .correct-text { color: #059669; }
+        .wrong-text { color: #dc2626; }
+        .option-label { transition: all 0.2s; }
+        .cloze-input {
+            border: 2px solid #9ca3af;
+            border-radius: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            font-weight: 600;
+            text-align: center;
+            color: #1f2937;
+            min-width: 150px;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div id="app" class="max-w-4xl mx-auto bg-white shadow-2xl rounded-xl p-6 md:p-10">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-blue-700">📚 Der vielseitige Lern-Assistent</h1>
+            <p class="text-gray-600 mt-2">Wählen Sie eine Lernmethode, laden Sie ein Bild hoch und beginnen Sie sofort.</p>
+        </header>
+
+        <!-- Modus-Auswahl und Upload-Bereich -->
+        <div class="mb-8 p-6 border border-gray-200 rounded-xl bg-gray-50">
+            <div class="mb-4">
+                <label for="learning-mode" class="block text-lg font-medium text-gray-700 mb-2">1. Lernmethode auswählen:</label>
+                <select id="learning-mode" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <option value="quiz">Multiple-Choice-Test (Fragen beantworten)</option>
+                    <option value="flashcards">Lernkarten (Zum Umdrehen)</option>
+                    <option value="cloze">Lückentext-Test (Begriffe eintragen)</option>
+                </select>
+            </div>
+
+            <label for="file-upload" class="cursor-pointer flex flex-col items-center justify-center p-6 mt-4 border-2 border-dashed border-blue-300 rounded-lg hover:border-blue-500 transition-all duration-300">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <p class="mt-2 text-lg font-medium text-blue-600">2. Lernmaterial-Foto hochladen (Klicken)</p>
+                <p class="text-sm text-gray-500">JPG/PNG. Der Test startet automatisch.</p>
+                <input id="file-upload" type="file" accept="image/png, image/jpeg" class="hidden" onchange="handleFileUpload(event)">
+            </label>
+            <div id="file-info" class="mt-4 text-center text-gray-700 hidden font-medium"></div>
+        </div>
+        
+        <!-- Ladeanzeige -->
+        <div id="loading-indicator" class="hidden text-center p-4">
+            <div class="flex items-center justify-center space-x-2">
+                <div class="w-4 h-4 rounded-full animate-pulse bg-blue-500"></div>
+                <div class="w-4 h-4 rounded-full animate-pulse bg-blue-500 delay-150"></div>
+                <div class="w-4 h-4 rounded-full animate-pulse bg-blue-500 delay-300"></div>
+                <span class="text-blue-600 font-medium ml-4">Generiere Lerninhalte...</span>
+            </div>
+        </div>
+
+        <!-- Fehlermeldungen -->
+        <div id="error-message" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">
+            <strong class="font-bold">Fehler:</strong>
+            <span id="error-text" class="block sm:inline">Ein unbekannter Fehler ist aufgetreten.</span>
+        </div>
+
+        <!-- Inhalts-Container -->
+        <div id="study-content-container" class="space-y-8">
+            <!-- Die generierten Lerninhalte werden hier eingefügt -->
+        </div>
+
+        <!-- Ergebnis-Anzeige (Nur für Quiz und Lückentext) -->
+        <div id="results-summary" class="hidden text-center mt-10 p-6 bg-blue-50 text-blue-700 rounded-xl border-2 border-blue-200 shadow-md">
+            <p class="font-extrabold text-2xl mb-2">Auswertung abgeschlossen!</p>
+            <p class="text-xl">Ihr Ergebnis: <span id="score-text" class="font-bold"></span></p>
+            <button onclick="resetApp()" class="mt-4 px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-lg">
+                Neuen Test starten / Methode wählen
+            </button>
+        </div>
+        
+    </div>
+
+    <script>
+        // Globale API-Konstanten
+        const apiKey = "AIzaSyBBnF08fFKySM8m0TVg9Sg8X-NFjw5uBTc";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        // Globale Zustandsvariablen
+        let studyData = [];
+        let userAnswers = {}; // Speichert die ausgewählte/eingegebene Antwort pro Element
+        let currentMode = 'quiz'; // Standardmodus
+
+        // DOM-Elemente
+        const modeSelect = document.getElementById('learning-mode');
+        const fileInfo = document.getElementById('file-info');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const errorMessage = document.getElementById('error-message');
+        const errorText = document.getElementById('error-text');
+        const studyContentContainer = document.getElementById('study-content-container');
+        const resultsSummary = document.getElementById('results-summary');
+        const scoreText = document.getElementById('score-text');
+
+        // Event Listener für Modusänderung
+        modeSelect.addEventListener('change', (e) => {
+            currentMode = e.target.value;
+            // Da ein Moduswechsel wahrscheinlich einen neuen Upload erfordert, resetten wir die App
+            resetApp(); 
+        });
+
+        /**
+         * Zeigt eine Fehlermeldung an.
+         * @param {string} message - Die anzuzeigende Fehlermeldung.
+         */
+        function displayError(message) {
+            errorText.textContent = message;
+            errorMessage.classList.remove('hidden');
+            loadingIndicator.classList.add('hidden');
+        }
+
+        /**
+         * Setzt den App-Zustand zurück, um einen neuen Vorgang zu starten.
+         */
+        function resetApp() {
+            studyData = [];
+            userAnswers = {};
+            studyContentContainer.innerHTML = '';
+            resultsSummary.classList.add('hidden');
+            fileInfo.classList.add('hidden');
+            document.getElementById('file-upload').value = ''; 
+            errorMessage.classList.add('hidden');
+            studyContentContainer.className = 'space-y-8'; // Reset Grid-Klasse falls Flashcards aktiv war
+        }
+
+        /**
+         * Verarbeitet das Hochladen der Datei und startet die Generierung.
+         * @param {Event} event - Das Change-Event des Datei-Inputs.
+         */
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            
+            // UI-Status zurücksetzen für neuen Upload
+            studyContentContainer.innerHTML = '';
+            resultsSummary.classList.add('hidden');
+            userAnswers = {};
+            
+            if (!file) {
+                fileInfo.classList.add('hidden');
+                return;
+            }
+
+            fileInfo.textContent = `Ausgewählt: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+            fileInfo.classList.remove('hidden');
+            
+            // Datei in Base64 konvertieren
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const base64Data = e.target.result.split(',')[1];
+                const mimeType = file.type;
+                
+                loadingIndicator.classList.remove('hidden');
+                await generateStudyContent(base64Data, mimeType);
+            };
+            reader.onerror = () => displayError("Fehler beim Lesen der Datei.");
+            reader.readAsDataURL(file);
+        }
+
+        /**
+         * Definiert die Parameter basierend auf dem gewählten Lernmodus.
+         * @param {string} mode - Der aktuelle Lernmodus ('quiz', 'flashcards', 'cloze').
+         */
+        function getModeConfig(mode) {
+            switch (mode) {
+                case 'quiz':
+                    return {
+                        prompt: "Sie sind ein KI-Wissenstest-Generator. Generieren Sie 5 testrelevante Multiple-Choice-Fragen mit 3 bis 4 Optionen aus dem Studienmaterial. Antworten müssen in deutscher Sprache sein.",
+                        schema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    "question": { "type": "STRING", description: "Die Frage des Wissenstests." },
+                                    "options": { "type": "ARRAY", "items": { "type": "STRING" }, description: "Eine Liste von 3 bis 4 möglichen Antworten." },
+                                    "correctAnswer": { "type": "STRING", description: "Die exakte korrekte Antwort, die mit einer der Optionen übereinstimmt." }
+                                },
+                                propertyOrdering: ["question", "options", "correctAnswer"]
+                            }
+                        }
+                    };
+                case 'flashcards':
+                    return {
+                        prompt: "Sie sind ein KI-Lernkarten-Generator. Extrahieren Sie 5 bis 8 die wichtigsten Fakten in Form von Lernkarten (Frage und Antwort) aus dem Studienmaterial. Antworten müssen in deutscher Sprache sein.",
+                        schema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    "question": { "type": "STRING", description: "Die Frage für die Lernkarte." },
+                                    "answer": { "type": "STRING", description: "Die Antwort auf die Frage." }
+                                },
+                                propertyOrdering: ["question", "answer"]
+                            }
+                        }
+                    };
+                case 'cloze':
+                    return {
+                        prompt: "Sie sind ein KI-Lückentext-Generator. Extrahieren Sie 5 Sätze oder Phrasen aus dem Studienmaterial und ersetzen Sie einen Schlüsselbegriff durch Auslassungspunkte '...'. Das Ziel ist ein Lückentext-Test. Antworten müssen in deutscher Sprache sein.",
+                        schema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    "gapText": { "type": "STRING", description: "Der Satz mit dem fehlenden Begriff, ersetzt durch '...'" },
+                                    "correctWord": { "type": "STRING", description: "Der exakte Begriff oder die Phrase, die in die Lücke gehört." }
+                                },
+                                propertyOrdering: ["gapText", "correctWord"]
+                            }
+                        }
+                    };
+                default:
+                    return { prompt: "", schema: {} };
+            }
+        }
+
+        /**
+         * Führt den API-Aufruf zur Generierung der Lerninhalte durch.
+         */
+        async function generateStudyContent(base64Data, mimeType) {
+            const config = getModeConfig(currentMode);
+            
+            if (!config.prompt) {
+                displayError("Ungültiger Lernmodus ausgewählt.");
+                return;
+            }
+
+            const payload = {
+                contents: [{ role: "user", parts: [{ text: "Generiere Inhalte basierend auf der Lernmethode und dem Bild." }, { inlineData: { mimeType: mimeType, data: base64Data }}]}],
+                systemInstruction: { parts: [{ text: config.prompt }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: config.schema
+                }
+            };
+
+            let response;
+            let retryCount = 0;
+            const maxRetries = 5;
+            
+            while (retryCount < maxRetries) {
+                try {
+                    response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP-Fehler! Status: ${response.status}`);
+                    }
+                    
+                    const result = await response.json();
+                    
+                    if (result.candidates && result.candidates.length > 0) {
+                        const jsonString = result.candidates[0].content.parts[0].text;
+                        const parsedData = JSON.parse(jsonString);
+                        studyData = parsedData; // Speichere die Daten global
+                        renderStudyContent(currentMode, studyData);
+                        loadingIndicator.classList.add('hidden');
+                        return;
+                    } else {
+                        throw new Error("API-Antwort ist leer oder ungültig.");
+                    }
+
+                } catch (error) {
+                    console.error("Generierungsfehler:", error);
+                    retryCount++;
+                    if (retryCount >= maxRetries) {
+                        displayError(`Generierung fehlgeschlagen nach ${maxRetries} Versuchen. Bitte versuchen Sie es später erneut. (${error.message})`);
+                        return;
+                    }
+                    const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        /**
+         * Rendert die generierten Inhalte basierend auf dem Modus.
+         */
+        function renderStudyContent(mode, data) {
+            studyContentContainer.innerHTML = ''; 
+
+            if (!Array.isArray(data) || data.length === 0) {
+                displayError("Die KI konnte keine gültigen Lerninhalte aus dem Bildmaterial generieren. Bitte versuchen Sie es mit einem klareren Bild.");
+                return;
+            }
+            
+            switch (mode) {
+                case 'quiz':
+                    renderQuiz(data);
+                    break;
+                case 'flashcards':
+                    renderFlashcards(data);
+                    break;
+                case 'cloze':
+                    renderCloze(data);
+                    break;
+            }
+
+            // Füge den Submit-Button für bewertbare Modi hinzu
+            if (mode === 'quiz' || mode === 'cloze') {
+                const submitButton = document.createElement('button');
+                submitButton.textContent = 'Test beenden & Gesamtbewertung';
+                submitButton.className = 'w-full mt-10 px-6 py-3 bg-blue-600 text-white font-bold text-lg rounded-xl shadow-xl hover:bg-blue-700 transition-colors';
+                submitButton.onclick = submitTest;
+                studyContentContainer.appendChild(submitButton);
+            }
+        }
+
+        // --- RENDERFUNKTIONEN ---
+
+        function renderQuiz(quiz) {
+            quiz.forEach((q, index) => {
+                const questionIndex = index;
+                const cardElement = document.createElement('div');
+                cardElement.className = 'bg-white border border-gray-200 rounded-xl shadow-lg p-6';
+                cardElement.id = `q-item-${questionIndex}`;
+                
+                // Frage
+                cardElement.innerHTML += `<h3 class="text-xl font-bold mb-4 text-gray-800">Frage ${index + 1}: ${q.question}</h3><div id="options-q${questionIndex}"></div>`;
+                
+                const optionsContainer = cardElement.querySelector(`#options-q${questionIndex}`);
+
+                // Optionen
+                q.options.forEach((option, optionIndex) => {
+                    const optionId = `q${questionIndex}-o${optionIndex}`;
+                    
+                    const optionDiv = document.createElement('div');
+                    optionDiv.className = 'option-label flex items-center p-3 mb-2 border border-gray-200 rounded-lg cursor-pointer hover:bg-blue-50 hover:shadow-md';
+                    optionDiv.innerHTML = `
+                        <input type="radio" id="${optionId}" name="q-radio-${questionIndex}" value="${option}" class="hidden">
+                        <span class="w-5 h-5 border-2 border-blue-400 rounded-full flex-shrink-0 mr-3 transition-colors"></span>
+                        <label for="${optionId}" class="flex-grow text-gray-700">${option}</label>
+                    `;
+
+                    const radioInput = optionDiv.querySelector('input');
+                    const visualIndicator = optionDiv.querySelector('span');
+
+                    // FIX: Klick-Listener für den gesamten Div, um den versteckten Radio-Button zu aktivieren (verbessert Touch-Erkennung)
+                    optionDiv.addEventListener('click', () => {
+                        if (radioInput.disabled) return; 
+                        radioInput.checked = true;
+                        radioInput.dispatchEvent(new Event('change')); // Löst change-Event aus
+                    });
+
+                    // Event Listener für Auswahl (wird durch Klick-Handler ausgelöst)
+                    radioInput.addEventListener('change', (e) => {
+                        if (e.target.checked) {
+                            userAnswers[questionIndex] = e.target.value;
+                            
+                            // Vorherige visuelle Auswahl aufheben
+                            document.querySelectorAll(`#q-item-${questionIndex} .option-label`).forEach(label => {
+                                label.classList.remove('bg-blue-100', 'ring-2', 'ring-blue-500', 'correct-bg', 'wrong-bg', 'border-4', 'border-green-500', 'border-red-500', 'shadow-md');
+                                label.querySelector('span').classList.remove('bg-blue-500');
+                            });
+                            
+                            // Aktuelle Auswahl hervorheben
+                            optionDiv.classList.add('bg-blue-100', 'ring-2', 'ring-blue-500');
+                            visualIndicator.classList.add('bg-blue-500');
+
+                            // Status-Nachricht und Prüfen-Button zurücksetzen
+                            const checkButton = cardElement.querySelector('button');
+                            const statusMessage = cardElement.querySelector('.status-message');
+                            checkButton.disabled = false;
+                            if (statusMessage) statusMessage.remove(); 
+                        }
+                    });
+                    
+                    optionsContainer.appendChild(optionDiv);
+                });
+                
+                // Prüfen-Button
+                const checkButton = document.createElement('button');
+                checkButton.textContent = 'Antwort prüfen';
+                checkButton.className = 'mt-4 px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 shadow-md';
+                checkButton.setAttribute('data-index', index);
+                checkButton.onclick = () => checkQuizAnswer(questionIndex, q.correctAnswer);
+                cardElement.appendChild(checkButton);
+
+                studyContentContainer.appendChild(cardElement);
+            });
+        }
+
+        function renderFlashcards(flashcards) {
+             studyContentContainer.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6';
+
+            flashcards.forEach((card, index) => {
+                const cardWrapper = document.createElement('div');
+                cardWrapper.className = 'flashcard-wrapper h-64';
+
+                const cardElement = document.createElement('div');
+                cardElement.className = 'flashcard';
+                cardElement.setAttribute('data-index', index);
+                
+                const front = document.createElement('div');
+                front.className = 'card-face card-front';
+                front.innerHTML = `<p class="text-xl font-semibold">${card.question}</p><span class="absolute bottom-2 right-4 text-sm opacity-80">Frage</span>`;
+                
+                const back = document.createElement('div');
+                back.className = 'card-face card-back';
+                back.innerHTML = `<div class="mb-2 text-sm font-bold text-blue-600">Antwort:</div><p class="text-lg">${card.answer}</p><span class="absolute bottom-2 right-4 text-sm opacity-80">Antwort</span>`;
+
+                cardElement.appendChild(front);
+                cardElement.appendChild(back);
+                cardWrapper.appendChild(cardElement);
+                
+                cardWrapper.addEventListener('click', () => {
+                    cardElement.classList.toggle('flipped');
+                });
+
+                studyContentContainer.appendChild(cardWrapper);
+            });
+        }
+
+        function renderCloze(clozeData) {
+            clozeData.forEach((item, index) => {
+                const itemIndex = index;
+                const cardElement = document.createElement('div');
+                cardElement.className = 'bg-white border border-gray-200 rounded-xl shadow-lg p-6';
+                cardElement.id = `cloze-item-${itemIndex}`;
+                
+                const gapPlaceholder = '...';
+                const parts = item.gapText.split(gapPlaceholder);
+
+                const textContainer = document.createElement('div');
+                textContainer.className = 'flex flex-wrap items-center text-lg mb-4 text-gray-800 font-medium';
+                
+                // Text vor der Lücke
+                if (parts[0]) {
+                    const before = document.createElement('span');
+                    before.textContent = parts[0];
+                    textContainer.appendChild(before);
+                }
+
+                // Eingabefeld für die Lücke
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = `cloze-input-${itemIndex}`;
+                input.placeholder = 'Ihr Begriff';
+                input.className = 'cloze-input mx-2';
+                input.oninput = (e) => {
+                    userAnswers[itemIndex] = e.target.value;
+                };
+                
+                // NEU: Bei Eingabe Feedback entfernen und Button aktivieren
+                input.addEventListener('input', () => {
+                    const checkButton = cardElement.querySelector('button');
+                    const statusMessage = cardElement.querySelector('.status-message');
+                    input.classList.remove('correct-bg', 'wrong-bg', 'border-4', 'border-green-500', 'border-red-500');
+                    checkButton.disabled = false;
+                    if (statusMessage) statusMessage.remove();
+                });
+
+                textContainer.appendChild(input);
+
+                // Text nach der Lücke
+                if (parts[1]) {
+                    const after = document.createElement('span');
+                    after.textContent = parts[1];
+                    textContainer.appendChild(after);
+                }
+
+                cardElement.appendChild(textContainer);
+
+                // Prüfen-Button
+                const checkButton = document.createElement('button');
+                checkButton.textContent = 'Antwort prüfen';
+                checkButton.className = 'mt-4 px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 shadow-md';
+                checkButton.setAttribute('data-index', index);
+                checkButton.onclick = () => checkClozeAnswer(itemIndex, item.correctWord);
+                cardElement.appendChild(checkButton);
+
+                studyContentContainer.appendChild(cardElement);
+            });
+        }
+        
+        // --- PRÜFUNGSFUNKTIONEN ---
+        
+        /**
+         * Prüft die Antwort für eine Multiple-Choice-Frage.
+         */
+        function checkQuizAnswer(index, correctAnswer) {
+            const questionElement = document.getElementById(`q-item-${index}`);
+            const checkButton = questionElement.querySelector('button');
+            const selectedAnswer = userAnswers[index];
+            
+            if (!selectedAnswer || typeof selectedAnswer !== 'string') {
+                // Keine Auswahl getroffen, zeige eine Nachricht (aber kein alert!)
+                console.warn("Bitte wählen Sie eine Option aus, bevor Sie prüfen.");
+                return;
+            }
+
+            checkButton.disabled = true;
+
+            const optionLabels = questionElement.querySelectorAll('.option-label');
+            let isCorrect = false;
+
+            optionLabels.forEach(label => {
+                const input = label.querySelector('input');
+                const optionValue = input.value;
+                
+                // FIX: Input deaktivieren, um Auswahl zu sperren
+                input.disabled = true;
+
+                // Entferne visuelle temporäre Auswahl-Highlights
+                label.classList.remove('bg-blue-100', 'ring-2', 'ring-blue-500');
+                label.querySelector('span').classList.remove('bg-blue-500');
+                
+                // Korrekte Antwort hervorheben
+                if (optionValue === correctAnswer) {
+                    label.classList.add('correct-bg', 'border-4', 'border-green-500', 'shadow-md');
+                }
+                
+                // Auswahl des Benutzers prüfen
+                if (optionValue === selectedAnswer) {
+                    if (optionValue === correctAnswer) {
+                        isCorrect = true;
+                    } else {
+                        // Falsche Auswahl hervorheben
+                        label.classList.add('wrong-bg', 'border-4', 'border-red-500', 'shadow-md');
+                    }
+                }
+            });
+            
+            // Speichere das Ergebnis als Objekt, damit submitTest funktioniert
+            userAnswers[index] = { selection: selectedAnswer, correct: isCorrect };
+
+            // Zeige Statusmeldung
+            let statusMessage = questionElement.querySelector('.status-message');
+            if (!statusMessage) {
+                statusMessage = document.createElement('p');
+                statusMessage.className = 'status-message mt-3 font-semibold text-lg';
+                questionElement.appendChild(statusMessage);
+            }
+            statusMessage.className = `status-message mt-3 font-semibold text-lg ${isCorrect ? 'correct-text' : 'wrong-text'}`;
+            statusMessage.textContent = isCorrect ? '✅ Richtig! Gut gemacht.' : `❌ Falsch! Die korrekte Antwort war: ${correctAnswer}`;
+        }
+        
+        /**
+         * Prüft die Antwort für einen Lückentext.
+         */
+        function checkClozeAnswer(index, correctWord) {
+            const itemElement = document.getElementById(`cloze-item-${index}`);
+            const inputElement = document.getElementById(`cloze-input-${index}`);
+            const checkButton = itemElement.querySelector('button');
+            const userAnswer = userAnswers[index] ? userAnswers[index].trim() : '';
+            const correctLower = correctWord.trim().toLowerCase();
+            
+            if (!userAnswer) return;
+
+            // Deaktiviere das Feld und den Button
+            checkButton.disabled = true;
+            inputElement.disabled = true;
+            
+            const isCorrect = userAnswer.toLowerCase() === correctLower;
+
+            inputElement.classList.remove('border-gray-400');
+            inputElement.classList.add(isCorrect ? 'correct-bg' : 'wrong-bg', 'border-4', isCorrect ? 'border-green-500' : 'border-red-500');
+            
+            userAnswers[index] = { selection: userAnswer, correct: isCorrect };
+            
+            // Zeige Statusmeldung
+            let statusMessage = itemElement.querySelector('.status-message');
+            if (!statusMessage) {
+                statusMessage = document.createElement('p');
+                statusMessage.className = 'status-message mt-3 font-semibold text-lg';
+                itemElement.appendChild(statusMessage);
+            }
+            statusMessage.className = `status-message mt-3 font-semibold text-lg ${isCorrect ? 'correct-text' : 'wrong-text'}`;
+            statusMessage.textContent = isCorrect ? '✅ Richtig!' : `❌ Falsch! Korrekt wäre: ${correctWord}`;
+        }
+
+        /**
+         * Berechnet und zeigt das Gesamtergebnis an (nur für Quiz/Cloze).
+         */
+        function submitTest() {
+            if (currentMode === 'flashcards') return; // Flashcards haben keine Bewertung
+
+            let correctCount = 0;
+            const totalQuestions = studyData.length;
+
+            studyData.forEach((item, index) => {
+                // Erzwinge die Prüfung, falls der Benutzer den Check-Button übersprungen hat
+                const questionId = `${currentMode === 'quiz' ? 'q-item' : 'cloze-item'}-${index}`;
+                const checkButton = document.querySelector(`#${questionId} button`);
+                
+                // Führe Prüfung nur durch, wenn noch nicht geprüft und eine Antwort vorhanden ist
+                if (checkButton && !checkButton.disabled) {
+                    if (currentMode === 'quiz' && userAnswers[index]) {
+                        checkQuizAnswer(index, item.correctAnswer);
+                    } else if (currentMode === 'cloze' && userAnswers[index]) {
+                        checkClozeAnswer(index, item.correctWord);
+                    }
+                }
+                
+                // Zähle die korrekten Antworten
+                if (userAnswers[index] && userAnswers[index].correct) {
+                    correctCount++;
+                }
+            });
+            
+            const percentage = ((correctCount / totalQuestions) * 100).toFixed(0);
+            
+            scoreText.textContent = `${correctCount} von ${totalQuestions} (${percentage}%)`;
+            resultsSummary.classList.remove('hidden');
+            
+            // Scrolle zum Ergebnis
+            resultsSummary.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+
+</body>
+</html>
