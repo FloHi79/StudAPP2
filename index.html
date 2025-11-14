@@ -71,8 +71,8 @@
 
     <div id="app" class="max-w-4xl mx-auto bg-white shadow-2xl rounded-xl p-6 md:p-10">
         <header class="text-center mb-8">
-            <h1 class="text-4xl font-extrabold text-blue-700">📚 Juli's Lernassistent</h1>
-            <p class="text-gray-600 mt-2">Wählen Sie eine Lernmethode, laden Sie ein Bild hoch und beginnen Sie sofort.</p>
+            <h1 class="text-4xl font-extrabold text-blue-700">📚 Julian's Lernassistent</h1>
+            <p class="text-gray-600 mt-2">Wählen Sie eine Lernmethode, laden Sie Dokumente hoch und beginnen Sie sofort.</p>
         </header>
 
         <!-- Modus-Auswahl und Upload-Bereich -->
@@ -90,9 +90,9 @@
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                 </svg>
-                <p class="mt-2 text-lg font-medium text-blue-600">2. Lernmaterial-Foto hochladen (Klicken)</p>
-                <p class="text-sm text-gray-500">JPG/PNG. Der Test startet automatisch.</p>
-                <input id="file-upload" type="file" accept="image/png, image/jpeg" class="hidden" onchange="handleFileUpload(event)">
+                <p class="mt-2 text-lg font-medium text-blue-600">2. Lernmaterial hochladen (Klicken, Mehrfachauswahl möglich)</p>
+                <p class="text-sm text-gray-500">JPG, PNG, **PDF**. Max. 20 Dateien. Der Test startet automatisch.</p>
+                <input id="file-upload" type="file" accept="image/png, image/jpeg, application/pdf" class="hidden" onchange="handleFileUpload(event)" multiple>
             </label>
             <div id="file-info" class="mt-4 text-center text-gray-700 hidden font-medium"></div>
         </div>
@@ -131,7 +131,9 @@
 
     <script>
         // Globale API-Konstanten
-        const apiKey = "AIzaSyBBnF08fFKySM8m0TVg9Sg8X-NFjw5uBTc";
+        // HINWEIS: FÜR DEN ECHTEN BETRIEB MÜSSEN SIE HIER IHREN EIGENEN GEMINI API-SCHLÜSSEL EINFÜGEN!
+        // WARNUNG: Dieser Schlüssel wird im Quellcode sichtbar sein. Nur für private Nutzung!
+        const apiKey = "AIzaSyBBnF08fFKySM8m0TVg9Sg8X-NFjw5uBTc"; // <--- HIER MUSS IHR SCHLÜSSEL HINEIN
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
         // Globale Zustandsvariablen
@@ -181,36 +183,70 @@
         }
 
         /**
-         * Verarbeitet das Hochladen der Datei und startet die Generierung.
+         * Verarbeitet das Hochladen der Dateien und startet die Generierung.
          * @param {Event} event - Das Change-Event des Datei-Inputs.
          */
         function handleFileUpload(event) {
-            const file = event.target.files[0];
-            
+            // Prüfe, ob der API-Schlüssel gesetzt ist
+            if (apiKey === "") {
+                displayError("API-Schlüssel fehlt. Bitte fügen Sie Ihren Schlüssel in den Code ein (siehe Skript-Block).");
+                return;
+            }
+
+            const files = event.target.files; // Jetzt eine FileList für Multiple-Upload
+            const maxFiles = 20; // Maximal 20 Dateien
+
             // UI-Status zurücksetzen für neuen Upload
             studyContentContainer.innerHTML = '';
             resultsSummary.classList.add('hidden');
             userAnswers = {};
+            errorMessage.classList.add('hidden');
             
-            if (!file) {
+            if (files.length === 0) {
                 fileInfo.classList.add('hidden');
                 return;
             }
 
-            fileInfo.textContent = `Ausgewählt: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+            if (files.length > maxFiles) {
+                displayError(`Sie können maximal ${maxFiles} Dateien gleichzeitig hochladen.`);
+                event.target.value = ''; // Input zurücksetzen
+                return;
+            }
+            
+            // HINWEIS: Die Prüfung, die PDF-Dateien ablehnt, wurde entfernt, 
+            // da die Gemini API PDF direkt als multimodalen Input verarbeiten kann.
+
+            let totalSize = 0;
+            for (const file of files) {
+                totalSize += file.size;
+            }
+
+            fileInfo.textContent = `Ausgewählt: ${files.length} Dateien (${(totalSize / 1024 / 1024).toFixed(2)} MB)`;
             fileInfo.classList.remove('hidden');
             
-            // Datei in Base64 konvertieren
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                const base64Data = e.target.result.split(',')[1];
-                const mimeType = file.type;
-                
-                loadingIndicator.classList.remove('hidden');
-                await generateStudyContent(base64Data, mimeType);
-            };
-            reader.onerror = () => displayError("Fehler beim Lesen der Datei.");
-            reader.readAsDataURL(file);
+            loadingIndicator.classList.remove('hidden');
+
+            // Dateien in Base64 konvertieren und Parts-Objekte erstellen
+            const imagePartsPromises = Array.from(files).map(file => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const base64Data = e.target.result.split(',')[1];
+                        resolve({
+                            inlineData: {
+                                mimeType: file.type,
+                                data: base64Data
+                            }
+                        });
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            });
+
+            Promise.all(imagePartsPromises)
+                .then(imageParts => generateStudyContent(imageParts))
+                .catch(error => displayError(`Fehler beim Konvertieren der Dateien: ${error.message}`));
         }
 
         /**
@@ -272,8 +308,9 @@
 
         /**
          * Führt den API-Aufruf zur Generierung der Lerninhalte durch.
+         * @param {Array<Object>} imageParts - Array von Bild-Parts (oder PDF-Parts) für die API.
          */
-        async function generateStudyContent(base64Data, mimeType) {
+        async function generateStudyContent(imageParts) {
             const config = getModeConfig(currentMode);
             
             if (!config.prompt) {
@@ -281,8 +318,14 @@
                 return;
             }
 
+            // Text-Prompt nach den Bildern hinzufügen.
+            const userParts = [
+                ...imageParts,
+                { text: "Generiere Inhalte basierend auf der Lernmethode und dem Inhalt ALLER hochgeladenen Dokumente (Bilder oder PDF)." } 
+            ];
+            
             const payload = {
-                contents: [{ role: "user", parts: [{ text: "Generiere Inhalte basierend auf der Lernmethode und dem Bild." }, { inlineData: { mimeType: mimeType, data: base64Data }}]}],
+                contents: [{ role: "user", parts: userParts }],
                 systemInstruction: { parts: [{ text: config.prompt }] },
                 generationConfig: {
                     responseMimeType: "application/json",
@@ -303,7 +346,9 @@
                     });
 
                     if (!response.ok) {
-                        throw new Error(`HTTP-Fehler! Status: ${response.status}`);
+                        // FIX: Zeige detaillierten Fehler bei API-Problemen (z.B. falscher Schlüssel)
+                        const errorBody = await response.json();
+                        throw new Error(`API-Fehler! Status: ${response.status}. Meldung: ${errorBody.error?.message || 'Unbekannt'}`);
                     }
                     
                     const result = await response.json();
@@ -323,7 +368,7 @@
                     console.error("Generierungsfehler:", error);
                     retryCount++;
                     if (retryCount >= maxRetries) {
-                        displayError(`Generierung fehlgeschlagen nach ${maxRetries} Versuchen. Bitte versuchen Sie es später erneut. (${error.message})`);
+                        displayError(`Generierung fehlgeschlagen nach ${maxRetries} Versuchen. Bitte versuchen Sie es später erneut. Root-Fehler: ${error.message}`);
                         return;
                     }
                     const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
@@ -339,7 +384,7 @@
             studyContentContainer.innerHTML = ''; 
 
             if (!Array.isArray(data) || data.length === 0) {
-                displayError("Die KI konnte keine gültigen Lerninhalte aus dem Bildmaterial generieren. Bitte versuchen Sie es mit einem klareren Bild.");
+                displayError("Die KI konnte keine gültigen Lerninhalte aus dem Dokumentmaterial generieren. Bitte versuchen Sie es mit klarerem Dokumentenmaterial.");
                 return;
             }
             
@@ -543,8 +588,7 @@
             const selectedAnswer = userAnswers[index];
             
             if (!selectedAnswer || typeof selectedAnswer !== 'string') {
-                // Keine Auswahl getroffen, zeige eine Nachricht (aber kein alert!)
-                console.warn("Bitte wählen Sie eine Option aus, bevor Sie prüfen.");
+                // Keine Auswahl getroffen
                 return;
             }
 
@@ -668,5 +712,4 @@
     </script>
 
 </body>
-
 </html>
