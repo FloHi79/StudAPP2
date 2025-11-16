@@ -71,7 +71,7 @@
 
     <div id="app" class="max-w-4xl mx-auto bg-white shadow-2xl rounded-xl p-6 md:p-10">
         <header class="text-center mb-8">
-            <h1 class="text-4xl font-extrabold text-blue-700">📚 Julian's Lernassistent</h1>
+            <h1 class="text-4xl font-extrabold text-blue-700">📚 Julian's Lerngenerator</h1>
             <p class="text-gray-600 mt-2">Wählen Sie eine Lernmethode, laden Sie Dokumente hoch und beginnen Sie sofort.</p>
         </header>
 
@@ -85,12 +85,28 @@
                     <option value="cloze">Lückentext-Test (Begriffe eintragen)</option>
                 </select>
             </div>
+            
+            <!-- NEUES FELD: ANZAHL DER FRAGEN -->
+            <div class="mb-4">
+                <label for="question-count" class="block text-lg font-medium text-gray-700 mb-2">2. Anzahl der Fragen/Karten wählen (Max. 50):</label>
+                <select id="question-count" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="15">15</option>
+                    <option value="20" selected>20</option>
+                    <option value="25">25</option>
+                    <option value="30">30</option>
+                    <option value="40">40</option>
+                    <option value="50">50</option>
+                </select>
+            </div>
+
 
             <label for="file-upload" class="cursor-pointer flex flex-col items-center justify-center p-6 mt-4 border-2 border-dashed border-blue-300 rounded-lg hover:border-blue-500 transition-all duration-300">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                 </svg>
-                <p class="mt-2 text-lg font-medium text-blue-600">2. Lernmaterial hochladen (Klicken, Mehrfachauswahl möglich)</p>
+                <p class="mt-2 text-lg font-medium text-blue-600">3. Lernmaterial hochladen</p>
                 <p class="text-sm text-gray-500">JPG, PNG, **PDF**. Max. 20 Dateien. Der Test startet automatisch.</p>
                 <input id="file-upload" type="file" accept="image/png, image/jpeg, application/pdf" class="hidden" onchange="handleFileUpload(event)" multiple>
             </label>
@@ -143,6 +159,7 @@
 
         // DOM-Elemente
         const modeSelect = document.getElementById('learning-mode');
+        const questionCountSelect = document.getElementById('question-count'); // NEU: Auswahl der Fragenanzahl
         const fileInfo = document.getElementById('file-info');
         const loadingIndicator = document.getElementById('loading-indicator');
         const errorMessage = document.getElementById('error-message');
@@ -194,7 +211,8 @@
             }
 
             const files = event.target.files; // Jetzt eine FileList für Multiple-Upload
-            const maxFiles = 20; // Maximal 20 Dateien
+            const maxFiles = 20; // Maximal 20 Dokumente/Bilder
+            const desiredCount = parseInt(questionCountSelect.value, 10); // NEU: Ausgewählte Fragenanzahl
 
             // UI-Status zurücksetzen für neuen Upload
             studyContentContainer.innerHTML = '';
@@ -213,9 +231,6 @@
                 return;
             }
             
-            // HINWEIS: Die Prüfung, die PDF-Dateien ablehnt, wurde entfernt, 
-            // da die Gemini API PDF direkt als multimodalen Input verarbeiten kann.
-
             let totalSize = 0;
             for (const file of files) {
                 totalSize += file.size;
@@ -245,19 +260,22 @@
             });
 
             Promise.all(imagePartsPromises)
-                .then(imageParts => generateStudyContent(imageParts))
+                .then(imageParts => generateStudyContent(imageParts, desiredCount)) // NEU: desiredCount übergeben
                 .catch(error => displayError(`Fehler beim Konvertieren der Dateien: ${error.message}`));
         }
 
         /**
          * Definiert die Parameter basierend auf dem gewählten Lernmodus.
          * @param {string} mode - Der aktuelle Lernmodus ('quiz', 'flashcards', 'cloze').
+         * @param {number} count - Die gewünschte Anzahl der zu generierenden Elemente.
          */
-        function getModeConfig(mode) {
+        function getModeConfig(mode, count) {
+            const basePrompt = "Antworten müssen in deutscher Sprache sein.";
+            
             switch (mode) {
                 case 'quiz':
                     return {
-                        prompt: "Sie sind ein KI-Wissenstest-Generator. Generieren Sie 5 testrelevante Multiple-Choice-Fragen mit 3 bis 4 Optionen aus dem Studienmaterial. Antworten müssen in deutscher Sprache sein.",
+                        prompt: `Sie sind ein KI-Wissenstest-Generator. Generieren Sie ${count} testrelevante Multiple-Choice-Fragen mit 3 bis 4 Optionen aus dem Studienmaterial. ${basePrompt}`,
                         schema: {
                             type: "ARRAY",
                             items: {
@@ -273,7 +291,7 @@
                     };
                 case 'flashcards':
                     return {
-                        prompt: "Sie sind ein KI-Lernkarten-Generator. Extrahieren Sie 5 bis 8 die wichtigsten Fakten in Form von Lernkarten (Frage und Antwort) aus dem Studienmaterial. Antworten müssen in deutscher Sprache sein.",
+                        prompt: `Sie sind ein KI-Lernkarten-Generator. Extrahieren Sie ${count} die wichtigsten Fakten in Form von Lernkarten (Frage und Antwort) aus dem Studienmaterial. ${basePrompt}`,
                         schema: {
                             type: "ARRAY",
                             items: {
@@ -288,7 +306,7 @@
                     };
                 case 'cloze':
                     return {
-                        prompt: "Sie sind ein KI-Lückentext-Generator. Extrahieren Sie 5 Sätze oder Phrasen aus dem Studienmaterial und ersetzen Sie einen Schlüsselbegriff durch Auslassungspunkte '...'. Das Ziel ist ein Lückentext-Test. Antworten müssen in deutscher Sprache sein.",
+                        prompt: `Sie sind ein KI-Lückentext-Generator. Extrahieren Sie ${count} Sätze oder Phrasen aus dem Studienmaterial und ersetzen Sie einen Schlüsselbegriff durch Auslassungspunkte '...'. Das Ziel ist ein Lückentext-Test. ${basePrompt}`,
                         schema: {
                             type: "ARRAY",
                             items: {
@@ -309,9 +327,10 @@
         /**
          * Führt den API-Aufruf zur Generierung der Lerninhalte durch.
          * @param {Array<Object>} imageParts - Array von Bild-Parts (oder PDF-Parts) für die API.
+         * @param {number} desiredCount - Die gewünschte Anzahl der zu generierenden Elemente.
          */
-        async function generateStudyContent(imageParts) {
-            const config = getModeConfig(currentMode);
+        async function generateStudyContent(imageParts, desiredCount) {
+            const config = getModeConfig(currentMode, desiredCount); // NEU: desiredCount übergeben
             
             if (!config.prompt) {
                 displayError("Ungültiger Lernmodus ausgewählt.");
